@@ -2,11 +2,10 @@
 """
 Contains class BaseModel
 """
-import inspect
+
 from datetime import datetime
+import hashlib
 import models
-from os import getenv
-import sqlalchemy
 from sqlalchemy import Column, String, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 import uuid
@@ -30,7 +29,10 @@ class BaseModel:
         """Initialization of the base model"""
         if kwargs:
             for key, value in kwargs.items():
-                if key != "__class__":
+                if key == "password" and not kwargs.get("created_at"):
+                    value = value.encode("ascii")
+                    setattr(self, key, hashlib.md5(value).hexdigest())
+                elif key != "__class__":
                     setattr(self, key, value)
             if kwargs.get("created_at", None) and type(self.created_at) is str:
                 self.created_at = datetime.strptime(kwargs["created_at"], time)
@@ -58,8 +60,16 @@ class BaseModel:
         models.storage.new(self)
         models.storage.save()
 
-    def to_dict(self):
-        """returns a dictionary containing all keys/values of the instance"""
+    def to_dict(self, password=False):
+        """returns a dictionary containing all keys/values of the instance
+
+        Args:
+            - password (bool, optional):
+                Set to False by default to prevent having the
+                password in the User's dictionary.
+                When True the password of User is included in the dictionary.
+                It's set to True when saving the data.
+        """
         new_dict = self.__dict__.copy()
         if "created_at" in new_dict:
             new_dict["created_at"] = new_dict["created_at"].strftime(time)
@@ -68,14 +78,11 @@ class BaseModel:
         new_dict["__class__"] = self.__class__.__name__
         if "_sa_instance_state" in new_dict:
             del new_dict["_sa_instance_state"]
-        frame = inspect.currentframe().f_back
-        func_name = frame.f_code.co_name
-        class_name = ''
-        if 'self' in frame.f_locals:
-            class_name = frame.f_locals["self"].__class__.__name__
-        is_fs_writing = func_name == 'save' and class_name == 'FileStorage'
-        if 'password' in new_dict and not is_fs_writing:
-            del new_dict['password']
+
+        if (not password and new_dict["__class__"] == "User" and
+                new_dict.get("password")):
+            del new_dict["password"]
+
         return new_dict
 
     def delete(self):

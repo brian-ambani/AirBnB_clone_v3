@@ -1,8 +1,12 @@
 #!/usr/bin/python3
-<<<<<<< HEAD
-""" Contains the places_reviews view for the API."""
-from flask import jsonify, request
-from werkzeug.exceptions import NotFound, MethodNotAllowed, BadRequest
+"""View for the Review objects.
+
+Routes:
+    - /places/<place_id>/reviews => methods[GET, POST]
+    - /reviews/<review_id> => methods[GET, DELETE, PUT]
+"""
+
+from flask import abort, request, jsonify, make_response
 
 from api.v1.views import app_views
 from models import storage
@@ -11,171 +15,155 @@ from models.review import Review
 from models.user import User
 
 
-@app_views.route('/places/<place_id>/reviews', methods=['GET', 'POST'])
-@app_views.route('/reviews/<review_id>', methods=['GET', 'DELETE', 'PUT'])
-def handle_reviews(place_id=None, review_id=None):
-    """The method handler for the reviews endpoint.
+@app_views.route("/places/<place_id>/reviews", strict_slashes=False)
+def get_reviews(place_id):
+    """Retrieves the list of Review objects of a place.
+
+    Args:
+        place_id (str): Place ID.
+
+    Errors raised:
+        - 404 (msg: "Not found") -> If the place_id is not
+            linked to any Place object.
+
+    Returns:
+        list: List of all Review objects dictionaries in the
+            given Place.
     """
-    handlers = {
-        'GET': get_reviews,
-        'DELETE': remove_review,
-        'POST': add_review,
-        'PUT': update_review
-    }
-    if request.method in handlers:
-        return handlers[request.method](place_id, review_id)
+    place = storage.get(Place, place_id)
+
+    if place:
+        reviews = place.reviews
+        return jsonify([review.to_dict() for review in reviews])
     else:
-        raise MethodNotAllowed(list(handlers.keys()))
+        abort(404)
 
 
-def get_reviews(place_id=None, review_id=None):
-    """Gets the review with the given id or all reviews in
-    the place with the given id.
-    """
-    if place_id:
-        place = storage.get(Place, place_id)
-        if place:
-            reviews = []
-            for review in place.reviews:
-                reviews.append(review.to_dict())
-            return jsonify(reviews)
-    elif review_id:
-        review = storage.get(Review, review_id)
-        if review:
-            return jsonify(review.to_dict())
-    raise NotFound()
+@app_views.route("/reviews/<review_id>", strict_slashes=False)
+def get_review(review_id):
+    """Retrieves a Review object.
 
+    Args:
+        review_id (str): Review ID.
 
-def remove_review(place_id=None, review_id=None):
-    """ Removes a review with the given id.
+    Errors raised:
+        - 404 (msg: "Not found") -> If the review_id is not
+            linked to any review object.
+
+    Returns:
+        dict: Dictionary of the requested Review.
     """
     review = storage.get(Review, review_id)
+
+    if review:
+        return jsonify(review.to_dict())
+    else:
+        abort(404)
+
+
+@app_views.route("/reviews/<review_id>", methods=["DELETE"],
+                 strict_slashes=False)
+def delete_review(review_id):
+    """Deletes a Review object.
+
+    Args:
+        review_id: Review ID.
+
+    Errors raised:
+        - 404 (msg: "Not found") -> If the review_id is not
+            linked to any Review object.
+
+    Returns:
+        tuple: Tuple of an empty dictionary and the status code.
+    """
+    review = storage.get(Review, review_id)
+
     if review:
         storage.delete(review)
         storage.save()
-        return jsonify({}), 200
-    raise NotFound()
+        return make_response(jsonify({}), 200)
+    else:
+        abort(404)
 
 
-def add_review(place_id=None, review_id=None):
-    """ Adds a new review.
+@app_views.route("/places/<place_id>/reviews", methods=["POST"],
+                 strict_slashes=False)
+def create_review(place_id):
+    """Creates a Review.
+
+    Args:
+        place_id (str): Place ID.
+
+    Errors raised:
+        - 404 (msg: "Not found") -> If the place_id is not
+            linked to any Place object.
+        - 404 (msg: "Not found") -> If the user_id  in data is not
+            linked to any User object.
+        - 400 (msg: "Not a JSON") -> If HTTP request body is
+            not valid JSON.
+        - 400 (msg: "Missing text") -> If the data from the
+            HTTP request does not contain the key text.
+        - 400 (msg: "Missing user_id") -> If the data from the
+            HTTP request does not contain the key user_id.
+
+    Returns:
+        tuple: Tuple of the dictionary of the newly created Review
+            and the status code.
     """
     place = storage.get(Place, place_id)
-    if not place:
-        raise NotFound()
-    data = request.get_json()
-    if type(data) is not dict:
-        raise BadRequest(description='Not a JSON')
-    if 'user_id' not in data:
-        raise BadRequest(description='Missing user_id')
-    user = storage.get(User, data['user_id'])
-    if not user:
-        raise NotFound()
-    if 'text' not in data:
-        raise BadRequest(description='Missing text')
-    data['place_id'] = place_id
-    new_review = Review(**data)
-    new_review.save()
-    return jsonify(new_review.to_dict()), 201
+    data = request.get_json(silent=True)
+    user = data and storage.get(User, data.get("user_id"))
+
+    if place and user and data and data.get("text"):
+        data["place_id"] = place_id
+        review = Review(**data)
+        review.save()
+        return make_response(jsonify(review.to_dict()), 201)
+    elif data and not data.get("text"):
+        abort(400, description="Missing text")
+    elif data and not data.get("user_id"):
+        abort(400, description="Missing user_id")
+    elif not data:
+        abort(400, description="Not a JSON")
+    elif not place or not user:
+        abort(404)
 
 
-def update_review(place_id=None, review_id=None):
-    """ Updates the review with the given id.
+@app_views.route("/reviews/<review_id>", methods=["PUT"], strict_slashes=False)
+def update_review(review_id):
+    """Updates a Review object.
+
+    Args:
+        review_id (str): Review ID.
+
+    Ignored keys:
+        - id
+        - place_id
+        - user_id
+        - created_at
+        - updated_at
+
+    Errors raised:
+        - 404 (msg: "Not found") -> If the review_id is not
+            linked to any Review object.
+        - 400 (msg: "Not a JSON") -> If HTTP request body is
+            not valid JSON.
+
+    Returns:
+        tuple: Tuple of the dictionary of the updated Review
+            and the status code.
     """
-    xkeys = ('id', 'user_id', 'place_id', 'created_at', 'updated_at')
-    if review_id:
-        review = storage.get(Review, review_id)
-        if review:
-            data = request.get_json()
-            if type(data) is not dict:
-                raise BadRequest(description='Not a JSON')
-            for key, value in data.items():
-                if key not in xkeys:
-                    setattr(review, key, value)
-            review.save()
-            return jsonify(review.to_dict()), 200
-    raise NotFound()
-=======
-""" View for Review objects that handles default API actions """
-from api.v1.views import app_views
-from flask import jsonify, abort, make_response, request
-from models import storage
-from models.place import Place
-from models.review import Review
+    review = storage.get(Review, review_id)
+    data = request.get_json(silent=True)
 
-
-@app_views.route('/places/<place_id>/reviews', methods=['GET'],
-                 strict_slashes=False)
-def reviews(place_id):
-    """ Retrieves the list of all Review objects """
-    place = storage.get("Place", place_id)
-    if not place:
+    ignored_keys = ["id", "created_at", "updated_at", "user_id", "place_id"]
+    if review and data:
+        for key, value in data.items():
+            if key not in ignored_keys:
+                setattr(review, key, value)
+                review.save()
+        return make_response(jsonify(review.to_dict()), 200)
+    elif not data:
+        abort(400, description="Not a JSON")
+    elif not review:
         abort(404)
-    return jsonify([review.to_dict() for review in place.reviews])
-
-
-@app_views.route('/reviews/<review_id>', methods=['GET'], strict_slashes=False)
-def r_review_id(review_id):
-    """ Retrieves a Review object """
-    review = storage.get("Review", review_id)
-    if not review:
-        abort(404)
-    return jsonify(review.to_dict())
-
-
-@app_views.route('/reviews/<review_id>', methods=['DELETE'],
-                 strict_slashes=False)
-def del_review(review_id):
-    """ Deletes a Review object """
-    review = storage.get("Review", review_id)
-    if not review:
-        abort(404)
-    review.delete()
-    storage.save()
-    return make_response(jsonify({}), 200)
-
-
-@app_views.route('/places/<place_id>/reviews', methods=['POST'],
-                 strict_slashes=False)
-def post_review(place_id):
-    """ Creates a Review object """
-    place = storage.get("Place", place_id)
-    if not place:
-        abort(404)
-    new_review = request.get_json()
-    if not new_review:
-        abort(400, "Not a JSON")
-    if "user_id" not in new_review:
-        abort(400, "Missing user_id")
-    user_id = new_review['user_id']
-    if not storage.get("User", user_id):
-        abort(404)
-    if "text" not in new_review:
-        abort(400, "Missing text")
-    review = Review(**new_review)
-    setattr(review, 'place_id', place_id)
-    storage.new(review)
-    storage.save()
-    return make_response(jsonify(review.to_dict()), 201)
-
-
-@app_views.route('/reviews/<review_id>', methods=['PUT'],
-                 strict_slashes=False)
-def put_review(review_id):
-    """ Updates a Review object """
-    review = storage.get("Review", review_id)
-    if not review:
-        abort(404)
-
-    body_request = request.get_json()
-    if not body_request:
-        abort(400, "Not a JSON")
-
-    for k, v in body_request.items():
-        if k not in ['id', 'user_id', 'place_id',
-                     'created_at', 'updated_at']:
-            setattr(review, k, v)
-
-    storage.save()
-    return make_response(jsonify(review.to_dict()), 200)
->>>>>>> 832d4c6724033a03560a8aadf62561d0295f84ab

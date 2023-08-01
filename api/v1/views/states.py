@@ -1,154 +1,140 @@
 #!/usr/bin/python3
-<<<<<<< HEAD
-'''Contains the states view for the API.'''
-from flask import jsonify, request
-from werkzeug.exceptions import NotFound, MethodNotAllowed, BadRequest
+"""View for the State objects.
+
+Routes:
+    - /states => methods=[GET, POST]
+    - /states/<state_id> => methods=[GET, PUT, DELETE]
+"""
+
+from flask import abort, request, jsonify, make_response
 
 from api.v1.views import app_views
-=======
-""" View for State objects that handles default API actions """
-from api.v1.views import app_views
-from flask import jsonify, abort, make_response, request
->>>>>>> 832d4c6724033a03560a8aadf62561d0295f84ab
 from models import storage
 from models.state import State
 
 
-<<<<<<< HEAD
-ALLOWED_METHODS = ['GET', 'DELETE', 'POST', 'PUT']
-'''Methods allowed for the states endpoint.'''
+@app_views.route("/states", strict_slashes=False)
+def get_states():
+    """Retrieves the list of all State objects.
+
+    Returns:
+        list: List of all State objects dictionaries.
+    """
+    states = storage.all(State)
+    return jsonify([state.to_dict() for state in states.values()])
 
 
-@app_views.route('/states', methods=ALLOWED_METHODS)
-@app_views.route('/states/<state_id>', methods=ALLOWED_METHODS)
-def handle_states(state_id=None):
-    '''The method handler for the states endpoint.
-    '''
-    handlers = {
-        'GET': get_states,
-        'DELETE': remove_state,
-        'POST': add_state,
-        'PUT': update_state,
-    }
-    if request.method in handlers:
-        return handlers[request.method](state_id)
+@app_views.route("/states/<state_id>", strict_slashes=False)
+def get_state(state_id):
+    """Retrieves a State object with the given state_id.
+
+    Errors raised:
+        - 404 (msg: "Not found") -> If the state_id is not
+            linked to any State object.
+
+    Args:
+        state_id (str): State ID as from the URL.
+
+    Returns:
+        dict: Dictionary of the requested State.
+        Status code: 200.
+    """
+    state = storage.get(State, state_id)
+
+    if state:
+        return jsonify(state.to_dict())
     else:
-        raise MethodNotAllowed(list(handlers.keys()))
-
-
-def get_states(state_id=None):
-    '''Gets the state with the given id or all states.
-    '''
-    all_states = storage.all(State).values()
-    if state_id:
-        res = list(filter(lambda x: x.id == state_id, all_states))
-        if res:
-            return jsonify(res[0].to_dict())
-        raise NotFound()
-    all_states = list(map(lambda x: x.to_dict(), all_states))
-    return jsonify(all_states)
-
-
-def remove_state(state_id=None):
-    '''Removes a state with the given id.
-    '''
-    all_states = storage.all(State).values()
-    res = list(filter(lambda x: x.id == state_id, all_states))
-    if res:
-        storage.delete(res[0])
-        storage.save()
-        return jsonify({}), 200
-    raise NotFound()
-
-
-def add_state(state_id=None):
-    '''Adds a new state.
-    '''
-    data = request.get_json()
-    if type(data) is not dict:
-        raise BadRequest(description='Not a JSON')
-    if 'name' not in data:
-        raise BadRequest(description='Missing name')
-    new_state = State(**data)
-    new_state.save()
-    return jsonify(new_state.to_dict()), 201
-
-
-def update_state(state_id=None):
-    '''Updates the state with the given id.
-    '''
-    xkeys = ('id', 'created_at', 'updated_at')
-    all_states = storage.all(State).values()
-    res = list(filter(lambda x: x.id == state_id, all_states))
-    if res:
-        data = request.get_json()
-        if type(data) is not dict:
-            raise BadRequest(description='Not a JSON')
-        old_state = res[0]
-        for key, value in data.items():
-            if key not in xkeys:
-                setattr(old_state, key, value)
-        old_state.save()
-        return jsonify(old_state.to_dict()), 200
-    raise NotFound()
-=======
-@app_views.route('/states', methods=['GET'], strict_slashes=False)
-def states():
-    """ Retrieves the list of all State objects """
-    d_states = storage.all(State)
-    return jsonify([obj.to_dict() for obj in d_states.values()])
-
-
-@app_views.route('/states/<state_id>', methods=['GET'], strict_slashes=False)
-def r_state_id(state_id):
-    """ Retrieves a State object """
-    state = storage.get("State", state_id)
-    if not state:
         abort(404)
-    return jsonify(state.to_dict())
 
 
-@app_views.route('/states/<state_id>', methods=['DELETE'],
+@app_views.route("/states/<state_id>", methods=["DELETE"],
                  strict_slashes=False)
-def del_state(state_id):
-    """ Deletes a State object """
-    state = storage.get("State", state_id)
-    if not state:
-        abort(404)
-    state.delete()
-    storage.save()
-    return make_response(jsonify({}), 200)
+def delete_state(state_id):
+    """Deletes a State object with the given state_id.
 
+    Errors raised:
+        - 404 (msg: "Not found") -> If the state_id is not
+            linked to any State object.
 
-@app_views.route('/states', methods=['POST'], strict_slashes=False)
-def post_state():
-    """ Creates a State object """
-    new_state = request.get_json()
-    if not new_state:
-        abort(400, "Not a JSON")
-    if "name" not in new_state:
-        abort(400, "Missing name")
-    state = State(**new_state)
-    storage.new(state)
-    storage.save()
-    return make_response(jsonify(state.to_dict()), 201)
+    Args:
+        state_id (str): State ID as from the URL.
 
+    Returns:
+        tuple: Tuple of an empty dictionary and the status code.
+        Status code: 200 if successful, 404 otherwise.
+    """
+    state = storage.get(State, state_id)
 
-@app_views.route('/states/<state_id>', methods=['PUT'], strict_slashes=False)
-def put_state(state_id):
-    """ Updates a State object """
-    state = storage.get("State", state_id)
-    if not state:
+    if state:
+        storage.delete(state)
+        storage.save()
+        return make_response(jsonify({}), 200)
+    else:
         abort(404)
 
-    body_request = request.get_json()
-    if not body_request:
-        abort(400, "Not a JSON")
 
-    for k, v in body_request.items():
-        if k != 'id' and k != 'created_at' and k != 'updated_at':
-            setattr(state, k, v)
+@app_views.route("/states", methods=["POST"], strict_slashes=False)
+def create_state():
+    """Creates a new State.
 
-    storage.save()
-    return make_response(jsonify(state.to_dict()), 200)
->>>>>>> 832d4c6724033a03560a8aadf62561d0295f84ab
+    Errors raised:
+        - 400 (msg: "Not a JSON") -> If HTTP request body is
+            not valid JSON.
+        - 400 (msg: "Missing name") -> If the data from the
+            HTTP request does not contain the key name.
+        - 404 (msg: "Not found") -> If state_id is not linked
+            to any State object.
+
+    Returns:
+        tuple: Tuple of the dictionary of the newly created State and
+            the status code.
+        Status code: 201 if successful, 400/404 if unsuccessful.
+    """
+    data = request.get_json(silent=True)
+    if data and data.get("name", None):
+        new_state = State(**data)
+        new_state.save()
+        return make_response(jsonify(new_state.to_dict()), 201)
+    elif data and not data.get("name", None):
+        abort(400, description="Missing name")
+    else:
+        abort(400, description="Not a JSON")
+
+
+@app_views.route("/states/<state_id>", methods=["PUT"], strict_slashes=False)
+def update_state(state_id):
+    """Updates a State Object.
+
+    Ignored keys:
+        - id
+        - created_at
+        - updated_at
+
+    Errors raised:
+        - 400 (msg: "Not a JSON") -> Raised if HTTP request
+            body is not valid JSON.
+        - 404 (msg: "Not found") -> Raised if state_id is not
+            linked to any State object.
+
+    Args:
+        state_id (str): State ID as from the URL.
+
+    Returns:
+        dict: If no errors are raised a dictionary of
+            the updated State as JSON is returned.
+        Status code: 200.
+    """
+    state = storage.get(State, state_id)
+    data = request.get_json(silent=True)
+
+    ignored_keys = ["id", "created_at", "updated_at"]
+    if state and data:
+        for key, value in data.items():
+            if key not in ignored_keys:
+                setattr(state, key, value)
+        state.save()
+        return make_response(jsonify(state.to_dict()), 200)
+    elif not state:
+        abort(404)
+    elif not data:
+        abort(400, description="Not a JSON")
